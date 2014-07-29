@@ -7,10 +7,15 @@
     var ZIPTIE_ID_ATTR = '__ziptie_id__',
         ZIPTIE_PROP_PREFIX = '__ziptie_',
         ZIPTIE_PROP_SUFFIX = '__',
-        nextId = 0;
+        nextId = 0,
+        fasteners = {};
 
     /* TODO: better ID impl */
     var id = function (obj) {
+        if (!obj) {
+            return -1;
+        }
+
         if (!obj.hasOwnProperty(ZIPTIE_ID_ATTR)) {
             /* Use defineProperty() to make the property non-enumerable */
             Object.defineProperty(obj, ZIPTIE_ID_ATTR, {
@@ -118,9 +123,15 @@
         if (tag === 'INPUT' && type && type.toLowerCase() === 'checkbox') {
             event = 'click';
             property = 'checked';
-        } else {
+        } else if (tag === 'INPUT') {
             event = 'input';
             property = 'value';
+        } else if (tag === 'TEXTAREA') {
+            event = 'input';
+            property = 'value';
+        } else {
+            event = null;
+            property = 'innerHTML';
         }
 
         var callback = function (ev) {
@@ -142,6 +153,24 @@
     var removeInputListener = function ($el, event, fn) {
         $el.removeEventListener(event, fn, false);
         return true;
+    };
+
+    var removePubSub = function (halfFastener) {
+        if (!halfFastener) {
+            /* No fastener defined */
+            return false;
+        }
+
+        var success = false;
+
+        if (hasEventListener(halfFastener.obj)) {
+            success = removeInputListener(halfFastener.obj, halfFastener.event, halfFastener.pubfn);
+        } else {
+            success = unlisten(halfFastener.obj, halfFastener.property);
+        }
+
+        success = success && nl.unsub(halfFastener.channel, halfFastener.subfn);
+        return success;
     };
 
     var createPublisher = function (obj, prop) {
@@ -190,74 +219,60 @@
         return halfFastener;
     };
 
-    var removePubSub = function (halfFastener) {
-        if (!halfFastener) {
-            /* No fastener defined */
+    var fasten = function (first, firstProp, second, secondProp) {
+        if (typeof firstProp !== 'string') {
+            /* Not specifying a property on the first, shift everything */
+            secondProp = second;
+            second = firstProp;
+            firstProp = void 0;
+        }
+
+        var firstHalf = createPublisher(first, firstProp);
+        var secondHalf = createPublisher(second, secondProp);
+
+        firstProp = firstHalf.property;
+        secondProp = secondHalf.property;
+
+        secondHalf = createSubscription(first, firstProp, secondHalf);
+        firstHalf = createSubscription(second, secondProp, firstHalf);
+
+        /* Store fastener */
+        var index = makeFastenerIndex(first, second);
+
+        fasteners[index] = {
+            first: firstHalf,
+            second: secondHalf
+        };
+
+        return true;
+    };
+
+    var snip = function (first, second) {
+        var index = makeFastenerIndex(first, second),
+            fastener = fasteners[index];
+
+        if (!fastener) {
+            /* No fastener exists - nothing to do */
             return false;
         }
 
-        var success = false;
+        var firstHalf = fastener.first,
+            secondHalf = fastener.second;
 
-        if (hasEventListener(halfFastener.obj)) {
-            success = removeInputListener(halfFastener.obj, halfFastener.event, halfFastener.pubfn);
-        } else {
-            success = unlisten(halfFastener.obj, halfFastener.property);
-        }
+        removePubSub(firstHalf);
+        removePubSub(secondHalf);
 
-        success = success && nl.unsub(halfFastener.channel, halfFastener.subfn);
-        return success;
+        delete fasteners[index];
+
+        return true;
     };
 
     var ziptie = {
-        fasteners: { },
-
-        fasten: function (first, firstProp, second, secondProp) {
-            if (typeof firstProp !== 'string') {
-                /* Not specifying a property on the first, shift everything */
-                secondProp = second;
-                second = firstProp;
-                firstProp = void 0;
-            }
-
-            var firstHalf = createPublisher(first, firstProp);
-            var secondHalf = createPublisher(second, secondProp);
-
-            firstProp = firstHalf.property;
-            secondProp = secondHalf.property;
-
-            secondHalf = createSubscription(first, firstProp, secondHalf);
-            firstHalf = createSubscription(second, secondProp, firstHalf);
-
-            /* Store fastener */
-            var index = makeFastenerIndex(first, second);
-
-            this.fasteners[index] = {
-                first: firstHalf,
-                second: secondHalf
-            };
-
-            return true;
-        },
-
-        snip: function (first, second) {
-            var index = makeFastenerIndex(first, second),
-                fastener = this.fasteners[index];
-
-            if (!fastener) {
-                /* No fastener exists - nothing to do */
-                return false;
-            }
-
-            var firstHalf = fastener.first,
-                secondHalf = fastener.second;
-
-            removePubSub(firstHalf);
-            removePubSub(secondHalf);
-
-            delete this.fasteners[index];
-
-            return true;
-        }
+        fasteners: fasteners,
+        fasten: fasten,
+        snip: snip,
+        createSubscription: createSubscription,
+        createPublisher: createPublisher
     };
 
     if (typeof define === 'function' && define.amd) {
