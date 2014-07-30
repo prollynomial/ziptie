@@ -67,9 +67,7 @@
             set: function (newValue) {
                 obj[ZIPTIE_ATTRIBUTES_NAME][prop] = newValue;
 
-                if (fn) {
-                    fn(newValue, prop);
-                }
+                fn(newValue, prop);
 
                 return obj[ZIPTIE_ATTRIBUTES_NAME][prop];
             },
@@ -181,6 +179,11 @@
     var createPublisher = function (obj, prop) {
         var publishCallback = function (val, propName) {
             nl.pub(id(obj) + '/' + propName + ':change', val);
+
+            /* Publish a diff to the object's change channel */
+            var diff = {};
+            diff[propName] = val;
+            nl.pub(id(obj) + ':change', diff);
         };
 
         var halfFastener,
@@ -211,9 +214,15 @@
             if (obj[prop] !== val) {
                 obj[prop] = val;
 
-                /* Fire the changed event with the new value if it's a DOM object and the onpropertychange is not in place */
+                /* Fire the changed event with the new value if there isn't
+                already an event listener. */
                 if (hasEventListener(obj)) {
                     nl.pub(id(obj) + '/' + prop + ':change', val);
+
+                    /* Publish a diff to the object's change channel */
+                    var diff = {};
+                    diff[prop] = val;
+                    nl.pub(id(obj) + ':change', diff);
                 }
             }
         };
