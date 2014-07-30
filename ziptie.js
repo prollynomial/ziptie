@@ -5,12 +5,10 @@
     'use strict';
 
     var ZIPTIE_ID_ATTR = '__ziptie_id__',
-        ZIPTIE_PROP_PREFIX = '__ziptie_',
-        ZIPTIE_PROP_SUFFIX = '__',
+        ZIPTIE_ATTRIBUTES_NAME = '__ziptie_attributes__',
         nextId = 0,
         fasteners = {};
 
-    /* TODO: better ID impl */
     var id = function (obj) {
         if (!obj) {
             return -1;
@@ -37,10 +35,6 @@
         return (firstId < secondId ? firstId + ',' + secondId : secondId + ',' + firstId);
     };
 
-    var makeZiptiePropertyName = function (name) {
-        return ZIPTIE_PROP_PREFIX + name + ZIPTIE_PROP_SUFFIX;
-    };
-
     var hasEventListener = function (obj) {
         return (
             obj
@@ -56,29 +50,31 @@
             return false;
         }
 
-        var newPropName = makeZiptiePropertyName(prop),
-            value = obj[prop];
+        var attributes = obj[ZIPTIE_ATTRIBUTES_NAME];
+        if (typeof attributes === 'undefined') {
+            /* Define ziptie attributes if it doesn't already exist. */
+            Object.defineProperty(obj, ZIPTIE_ATTRIBUTES_NAME, {
+                value: {},
+                writable: true,
+                configurable: true,
+                enumerable: false
+            });
+        }
 
-        Object.defineProperty(obj, newPropName, {
-            value: value,
-            writable: true,
-            configurable: true,
-            enumerable: false
-        });
+        var value = obj[prop];
 
-        obj[prop] = void 0;
         Object.defineProperty(obj, prop, {
             set: function (newValue) {
-                obj[newPropName] = newValue;
+                obj[ZIPTIE_ATTRIBUTES_NAME][prop] = newValue;
 
                 if (fn) {
                     fn(newValue, prop);
                 }
 
-                return obj[newPropName];
+                return obj[ZIPTIE_ATTRIBUTES_NAME][prop];
             },
             get: function () {
-                return obj[newPropName];
+                return obj[ZIPTIE_ATTRIBUTES_NAME][prop];
             },
             configurable: true,
             enumerable: true
@@ -93,21 +89,30 @@
     };
 
     var unlisten = function (obj, prop) {
-        var ziptieProp = makeZiptiePropertyName(prop),
-            value = obj[ziptieProp];
+        var attributes = obj[ZIPTIE_ATTRIBUTES_NAME];
 
-        if (!value) {
-            /* Something went wrong - can't remove non-existant property */
+        if (typeof attributes === 'undefined') {
+            /* There are no ziptie attributes on this object. */
             return false;
         }
 
+        var value = attributes[prop];
+
+        /* Re-define the property as it originally existed. */
         Object.defineProperty(obj, prop, {
             value: value,
             enumerable: true,
             configurable: true
         });
 
-        delete obj[ziptieProp];
+        /* Remove the property from the ziptie attributes. */
+        delete attributes[prop];
+
+        /* If there are no more ziptie attributes, clean up after ourselves. */
+        if (Object.keys(attributes).length === 0) {
+            delete obj[ZIPTIE_ATTRIBUTES_NAME];
+        }
+
         return true;
     };
 
