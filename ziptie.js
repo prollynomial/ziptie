@@ -59,9 +59,11 @@
                 configurable: true,
                 enumerable: false
             });
+
+            attributes = obj[ZIPTIE_ATTRIBUTES_NAME];
         }
 
-        var value = obj[prop];
+        attributes[prop] = obj[prop];
 
         Object.defineProperty(obj, prop, {
             set: function (newValue) {
