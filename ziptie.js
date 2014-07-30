@@ -235,6 +235,7 @@
         return halfFastener;
     };
 
+    /* Note: The first argument's value is chosen as truth. */
     var fasten = function (first, firstProp, second, secondProp) {
         if (typeof firstProp !== 'string') {
             /* Not specifying a property on the first, shift everything */
@@ -259,6 +260,11 @@
             first: firstHalf,
             second: secondHalf
         };
+
+        /* Sync values, choosing the first argument as truth. */
+        nl.pub(firstHalf.channel, firstHalf.obj[firstHalf.property]);
+        /* The same action will happen for the secondHalf if its value is changed
+        by the sync action. */
 
         return true;
     };
