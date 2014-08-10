@@ -28,6 +28,17 @@
         return obj[ZIPTIE_ID_ATTR];
     };
 
+    var channel = function (obj, prop, action) {
+        if (action === undefined) {
+            /* Only an object and an action are specified - changes channel */
+            action = prop;
+
+            return id(obj) + ':' + action;
+        } else {
+            return id(obj) + '/' + prop + ':' + action;
+        }
+    };
+
     var makeFastenerIndex = function (first, second) {
         var firstId = id(first),
             secondId = id(second);
@@ -108,11 +119,6 @@
         /* Remove the property from the ziptie attributes. */
         delete attributes[prop];
 
-        /* If there are no more ziptie attributes, clean up after ourselves. */
-        if (Object.keys(attributes).length === 0) {
-            delete obj[ZIPTIE_ATTRIBUTES_NAME];
-        }
-
         return true;
     };
 
@@ -180,29 +186,27 @@
 
     var createPublisher = function (obj, prop) {
         var publishCallback = function (val, propName) {
-            nl.pub(id(obj) + '/' + propName + ':change', val);
+            nl.pub(channel(obj, propName, 'change'), val);
 
             /* Publish a diff to the object's change channel */
             var diff = {};
             diff[propName] = val;
-            nl.pub(id(obj) + ':change', diff);
+            nl.pub(channel(obj, 'change'), diff);
         };
 
         var halfFastener,
-            channelUri = id(obj) + '/';
+            channelUri;
 
         if (hasEventListener(obj)) {
             /* Ignore prop and add a listener to the DOM object */
             halfFastener = addInputListener(obj, publishCallback);
 
-            channelUri += halfFastener.property;
+            channelUri = channel(obj, halfFastener.property, 'change');
         } else {
             halfFastener = listen(obj, prop, publishCallback);
 
-            channelUri += prop;
+            channelUri = channel(obj, prop, 'change');
         }
-
-        channelUri += ':change';
 
         /* Add the channelUri to the half-fastener */
         halfFastener.channel = channelUri;
@@ -219,12 +223,12 @@
                 /* Fire the changed event with the new value if there isn't
                 already an event listener. */
                 if (hasEventListener(obj)) {
-                    nl.pub(id(obj) + '/' + prop + ':change', val);
+                    nl.pub(channel(obj, prop, 'change'), val);
 
                     /* Publish a diff to the object's change channel */
                     var diff = {};
                     diff[prop] = val;
-                    nl.pub(id(obj) + ':change', diff);
+                    nl.pub(channel(obj, 'change'), diff);
                 }
             }
         };
