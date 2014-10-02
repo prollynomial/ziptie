@@ -29,24 +29,13 @@
             }
 
             this.options = options;
+
             var model = options.model,
                 view = options.view;
 
-            this.viewChangedCallback = function () {
-                /* Get the new view value: */
-                var value = view.target[view.property];
-
-                /* Sync the model: */
-                model.target[model.property] = value;
-            }
-
-            this.modelChangedCallback = function () {
-                /* Get the new model value: */
-                var value = model.target[model.property];
-
-                /* Sync the view: */
-                view.target[view.property] = value;
-            }
+            /* Create synchronization functions: */
+            this.modelChangedCallback = createSynchro(model, view);
+            this.viewChangedCallback = createSynchro(view, model);
 
             /* Fasten the targets. */
             configureModel(options.model, this.modelChangedCallback);
@@ -81,6 +70,16 @@
         }
 
         return object;
+    }
+
+    function createSynchro(from, to) {
+        return function () {
+            /* Get the new from value: */
+            var value = from.target[from.property];
+
+            /* Sync: */
+            to.target[to.property] = value;
+        }
     }
 
     function configureView(view, viewChangedCallback) {
