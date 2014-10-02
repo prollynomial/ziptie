@@ -1,5 +1,6 @@
 Ziptie
 ======
+[![](http://img.shields.io/npm/v/ziptie.svg?style=flat-square)](https://npmjs.org/package/ziptie)
 
 Dependencies
 ------------
