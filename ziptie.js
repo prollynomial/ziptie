@@ -1,318 +1,192 @@
 //     ziptie.js - (c) 2014 Adam Carruthers
 //     ziptie may be freely distributed under the MIT License.
 
-(function (global, nl) {
+(function (global) {
     'use strict';
 
-    var ZIPTIE_ID_ATTR = '__ziptie_id__',
-        ZIPTIE_ATTRIBUTES_NAME = '__ziptie_attributes__',
-        nextId = 0,
-        fasteners = {};
+    var ZIPTIE_ATTRIBUTES = '__ziptie_attributes__';
 
-    var id = function (obj) {
-        if (!obj) {
-            return -1;
+    modulify(function () {
+        /**
+         * Options looks like:
+         *
+         *  {
+         *      view: {
+         *          target: $('#name'),
+         *          event: 'input',
+         *          property: 'value'
+         *      },
+         *      model: {
+         *          target: myObj,
+         *          property: 'name'
+         *      }
+         *  }
+         */
+        function Ziptie(options) {
+            /* Verify input: */
+            if (!options.model || !options.view) {
+                throw new Error('Invalid options: missing view or model.');
+            }
+
+            this.options = options;
+            var model = options.model,
+                view = options.view;
+
+            this.viewChangedCallback = function () {
+                /* Get the new view value: */
+                var value = view.target[view.property];
+
+                /* Sync the model: */
+                model.target[model.property] = value;
+            }
+
+            this.modelChangedCallback = function () {
+                /* Get the new model value: */
+                var value = model.target[model.property];
+
+                /* Sync the view: */
+                view.target[view.property] = value;
+            }
+
+            /* Fasten the targets. */
+            configureModel(options.model, this.modelChangedCallback);
+            configureView(options.view, this.viewChangedCallback);
+
+            /* Sync model and view, taking model as truth: */
+            this.modelChangedCallback();
         }
 
-        if (!obj.hasOwnProperty(ZIPTIE_ID_ATTR)) {
-            /* Use defineProperty() to make the property non-enumerable */
-            Object.defineProperty(obj, ZIPTIE_ID_ATTR, {
-                value: ++nextId,
-                configurable: true,
-                /* Even those these values are default, be explicit. */
-                writable: false,
-                enumerable: false
-            });
+        extend(Ziptie.prototype, {
+            snip: function () {
+                /* Unregister view callback. */
+                teardownView(this.options.view, this.viewChangedCallback);
+
+                /* Remove model observer. */
+                teardownModel(this.options.model);
+            }
+        });
+
+        return Ziptie;
+    });
+
+    /* Utility function - TODO: replace with lodash.assign */
+    function extend(object, source) {
+        var index = -1,
+            props = Object.keys(source),
+            length = props.length;
+
+        while (++index < length) {
+            var key = props[index];
+            object[key] = source[key];
         }
 
-        return obj[ZIPTIE_ID_ATTR];
-    };
+        return object;
+    }
 
-    var channel = function (obj, prop, action) {
-        if (action === undefined) {
-            /* Only an object and an action are specified - changes channel */
-            action = prop;
-
-            return id(obj) + ':' + action;
-        } else {
-            return id(obj) + '/' + prop + ':' + action;
-        }
-    };
-
-    var makeFastenerIndex = function (first, second) {
-        var firstId = id(first),
-            secondId = id(second);
-
-        return (firstId < secondId ? firstId + ',' + secondId : secondId + ',' + firstId);
-    };
-
-    var hasEventListener = function (obj) {
-        return (
-            obj
-            && typeof obj.addEventListener === 'function'
-            && typeof obj.removeEventListener === 'function'
-        );
-    };
-
-    var listen = function (obj, prop, fn) {
-        if (!obj || hasEventListener(obj) || !obj.hasOwnProperty(prop)) {
-            /* If obj doesn't exist, or already has listener functionality,
-            or doesn't have a property prop, don't do anything. */
+    function configureView(view, viewChangedCallback) {
+        /* Verify input: */
+        if (!view.target || !view.event || !view.property) {
             return false;
         }
 
-        var attributes = obj[ZIPTIE_ATTRIBUTES_NAME];
+        /* Add the event listener. */
+        view.target.addEventListener(view.event, viewChangedCallback);
+    }
+
+    function configureModel(model, modelChangedCallback) {
+        /* Verify input: */
+        if (!model.target || !model.property) {
+            return false;
+        }
+
+        observe(model, modelChangedCallback);
+    }
+
+    function teardownModel(model) {
+        removeObserver(model);
+    }
+
+    function teardownView(view, viewChangedCallback) {
+        /* Remove the event listener: */
+        view.target.removeEventListener(view.event, viewChangedCallback);
+    }
+
+    function observe(model, callback) {
+        var attributes = getZiptieAttributes(model.target);
+
+        /* Back up the value of the property. */
+        attributes[model.property] = model.target[model.property];
+
+        /* Redefine target.property to support observation: */
+        Object.defineProperty(model.target, model.property, {
+            set: function (newValue) {
+                attributes[model.property] = newValue;
+
+                callback(newValue);
+
+                return attributes[model.property];
+            },
+
+            get: function () {
+                return attributes[model.property];
+            },
+
+            configurable: true,
+            enumerable: true
+        });
+    }
+
+    function removeObserver(model) {
+        var attributes = getZiptieAttributes(model.target),
+            value = attributes[model.property];
+
+        /* Re-define the property as it originally existed. */
+        Object.defineProperty(model.target, model.property, {
+            value: value,
+            enumerable: true,
+            configurable: true,
+            writable: true
+        });
+
+        /* Remove the property from the ziptie attributes. */
+        delete attributes[model.property];
+
+        return true;
+    }
+
+    function getZiptieAttributes(target) {
+        var attributes = target[ZIPTIE_ATTRIBUTES];
+
         if (typeof attributes === 'undefined') {
             /* Define ziptie attributes if it doesn't already exist. */
-            Object.defineProperty(obj, ZIPTIE_ATTRIBUTES_NAME, {
+            attributes = createZiptieAttributes(target);
+        }
+
+        return attributes;
+    }
+
+    function createZiptieAttributes(target) {
+        Object.defineProperty(target, ZIPTIE_ATTRIBUTES, {
                 value: {},
                 writable: true,
                 configurable: true,
                 enumerable: false
             });
 
-            attributes = obj[ZIPTIE_ATTRIBUTES_NAME];
-        }
-
-        attributes[prop] = obj[prop];
-
-        Object.defineProperty(obj, prop, {
-            set: function (newValue) {
-                obj[ZIPTIE_ATTRIBUTES_NAME][prop] = newValue;
-
-                fn(newValue, prop);
-
-                return obj[ZIPTIE_ATTRIBUTES_NAME][prop];
-            },
-            get: function () {
-                return obj[ZIPTIE_ATTRIBUTES_NAME][prop];
-            },
-            configurable: true,
-            enumerable: true
-        });
-
-        /* Return this half-fastener */
-        return {
-            obj: obj,
-            pubfn: fn,
-            property: prop
-        };
-    };
-
-    var unlisten = function (obj, prop) {
-        var attributes = obj[ZIPTIE_ATTRIBUTES_NAME];
-
-        if (typeof attributes === 'undefined') {
-            /* There are no ziptie attributes on this object. */
-            return false;
-        }
-
-        var value = attributes[prop];
-
-        /* Re-define the property as it originally existed. */
-        Object.defineProperty(obj, prop, {
-            value: value,
-            enumerable: true,
-            configurable: true
-        });
-
-        /* Remove the property from the ziptie attributes. */
-        delete attributes[prop];
-
-        return true;
-    };
-
-    /* Define a fallback for addEventListener */
-    var addInputListener = function ($el, fn) {
-        /* What type of element is this? */
-        var tag = $el.nodeName,
-            type = $el.type,
-            event = '',
-            property = '';
-
-        /* TODO: other exceptions? */
-        if (tag === 'INPUT' && type && type.toLowerCase() === 'checkbox') {
-            event = 'click';
-            property = 'checked';
-        } else if (tag === 'INPUT') {
-            event = 'input';
-            property = 'value';
-        } else if (tag === 'TEXTAREA') {
-            event = 'input';
-            property = 'value';
-        } else {
-            event = null;
-            property = 'innerHTML';
-        }
-
-        var callback = function (ev) {
-            return fn($el[property], property, ev);
-        };
-
-        /* TODO: add copy/paste listener */
-        $el.addEventListener(event, callback);
-
-        /* Return the half-fastener */
-        return {
-            obj: $el,
-            pubfn: callback,
-            property: property,
-            event: event
-        };
-    };
-
-    var removeInputListener = function ($el, event, fn) {
-        $el.removeEventListener(event, fn, false);
-        return true;
-    };
-
-    var removePubSub = function (halfFastener) {
-        if (!halfFastener) {
-            /* No fastener defined */
-            return false;
-        }
-
-        var success = false;
-
-        if (hasEventListener(halfFastener.obj)) {
-            success = removeInputListener(halfFastener.obj, halfFastener.event, halfFastener.pubfn);
-        } else {
-            success = unlisten(halfFastener.obj, halfFastener.property);
-        }
-
-        success = success && nl.unsub(halfFastener.channel, halfFastener.subfn);
-        return success;
-    };
-
-    var createPublisher = function (obj, prop) {
-        var publishCallback = function (val, propName) {
-            nl.pub(channel(obj, propName, 'change'), val);
-
-            /* Publish a diff to the object's change channel */
-            var diff = {};
-            diff[propName] = val;
-            nl.pub(channel(obj, 'change'), diff);
-        };
-
-        var halfFastener,
-            channelUri;
-
-        if (hasEventListener(obj)) {
-            /* Ignore prop and add a listener to the DOM object */
-            halfFastener = addInputListener(obj, publishCallback);
-
-            channelUri = channel(obj, halfFastener.property, 'change');
-        } else {
-            halfFastener = listen(obj, prop, publishCallback);
-
-            channelUri = channel(obj, prop, 'change');
-        }
-
-        /* Add the channelUri to the half-fastener */
-        halfFastener.channel = channelUri;
-
-        /* Return the mutated half-fastener */
-        return halfFastener;
-    };
-
-    var createSubscription = function (obj, prop, halfFastener) {
-        var callback = function (val) {
-            if (obj[prop] !== val) {
-                obj[prop] = val;
-
-                /* Fire the changed event with the new value if there isn't
-                already an event listener. */
-                if (hasEventListener(obj)) {
-                    nl.pub(channel(obj, prop, 'change'), val);
-
-                    /* Publish a diff to the object's change channel */
-                    var diff = {};
-                    diff[prop] = val;
-                    nl.pub(channel(obj, 'change'), diff);
-                }
-            }
-        };
-
-        nl.sub(halfFastener.channel, callback);
-
-        halfFastener.subfn = callback;
-        return halfFastener;
-    };
-
-    /* Note: The first argument's value is chosen as truth. */
-    var fasten = function (first, firstProp, second, secondProp) {
-        if (typeof firstProp !== 'string') {
-            /* Not specifying a property on the first, shift everything */
-            secondProp = second;
-            second = firstProp;
-            firstProp = void 0;
-        }
-
-        var firstHalf = createPublisher(first, firstProp);
-        var secondHalf = createPublisher(second, secondProp);
-
-        firstProp = firstHalf.property;
-        secondProp = secondHalf.property;
-
-        secondHalf = createSubscription(first, firstProp, secondHalf);
-        firstHalf = createSubscription(second, secondProp, firstHalf);
-
-        /* Store fastener */
-        var index = makeFastenerIndex(first, second);
-
-        fasteners[index] = {
-            first: firstHalf,
-            second: secondHalf
-        };
-
-        /* Sync values, choosing the first argument as truth. */
-        nl.pub(firstHalf.channel, firstHalf.obj[firstHalf.property]);
-        /* The same action will happen for the secondHalf if its value is changed
-        by the sync action. */
-
-        return true;
-    };
-
-    var snip = function (first, second) {
-        var index = makeFastenerIndex(first, second),
-            fastener = fasteners[index];
-
-        if (!fastener) {
-            /* No fastener exists - nothing to do */
-            return false;
-        }
-
-        var firstHalf = fastener.first,
-            secondHalf = fastener.second;
-
-        removePubSub(firstHalf);
-        removePubSub(secondHalf);
-
-        delete fasteners[index];
-
-        return true;
-    };
-
-    var ziptie = {
-        fasteners: fasteners,
-        fasten: fasten,
-        snip: snip,
-        createSubscription: createSubscription,
-        createPublisher: createPublisher
-    };
-
-    if (typeof define === 'function' && define.amd) {
-        // Export ziptie for CommonJS/AMD
-        define('ziptie', ['newsletter'], function () {
-            return ziptie;
-        });
-    } else if (typeof module !== 'undefined') {
-        // Export ziptie for Node
-        module.exports = ziptie;
-    } else {
-        // Define ziptie as a global.
-        global.ziptie = ziptie;
+        return target[ZIPTIE_ATTRIBUTES];
     }
 
-    return ziptie;
-}(this, Newsletter));
+    /* Exports Ziptie for a subset of the plethora of module systems. */
+    function modulify(factory) {
+        if (typeof module === 'object') {
+            /* Export for Browserify: */
+            module.exports = factory();
+        } else if (typeof define === 'function' && define.amd) {
+            /* Export for amd: */
+            define('ziptie', factory);
+        } else {
+            /* Extend the global scope to include ziptie: */
+            global.Ziptie = factory();
+        }
+    }
+}(window));
